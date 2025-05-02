@@ -4,7 +4,8 @@ import useSWR from "swr"
 import { Search, Filter as FilterIcon, ChevronDown, ChevronRight } from "lucide-react"
 import React, { useState, useRef, useEffect } from "react"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const rawBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const API_BASE = rawBase.replace(/\/+$/,"");
 
 interface CreatorGroup {
   name: string
@@ -49,8 +50,7 @@ export default function ClientPortal() {
   if (hasProfile) params.append("has_url", "true")
 
   const { data: creators, error } = useSWR<CreatorGroup[]>(
-    // use backticks, not quotes, so API_BASE and params.toString() get substituted
-    `${API_BASE}/creators?${params.toString()}`,
+    `${API_BASE}/creators?${params.toString()}`,  // now only one slash
     fetcher
   )
 
