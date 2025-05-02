@@ -49,7 +49,8 @@ export default function ClientPortal() {
   if (hasProfile) params.append("has_url", "true")
 
   const { data: creators, error } = useSWR<CreatorGroup[]>(
-    '${API_BASE}/creators/?${params.toString()}',
+    // use backticks, not quotes, so API_BASE and params.toString() get substituted
+    `${API_BASE}/creators?${params.toString()}`,
     fetcher
   )
 
