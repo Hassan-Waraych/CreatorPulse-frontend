@@ -5,7 +5,7 @@ import { Search, Filter as FilterIcon, ChevronDown, ChevronRight } from "lucide-
 import React, { useState, useRef, useEffect } from "react"
 
 const rawBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-export const API_BASE = rawBase.replace(/\/+$/,"");
+const API_BASE = rawBase.replace(/\/+$/,"");
 
 interface CreatorGroup {
   name: string
