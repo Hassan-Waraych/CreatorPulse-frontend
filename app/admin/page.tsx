@@ -58,6 +58,9 @@ export default function AdminDashboard() {
   const [previewSubject, setPreviewSubject] = useState("")
   const [previewBody, setPreviewBody] = useState("")
   const [originalTemplate, setOriginalTemplate] = useState<Template | null>(null)
+  const [selectedCreators, setSelectedCreators] = useState<Set<number>>(new Set())
+  const [massEmailModalOpen, setMassEmailModalOpen] = useState(false)
+  const [isSendingMassEmail, setIsSendingMassEmail] = useState(false)
 
   // fetch clients
   const { data: clients, error: errClients } = useSWR<Client[]>(
@@ -151,6 +154,51 @@ export default function AdminDashboard() {
     setModalOpen(false)
   }
 
+  // Toggle creator selection for mass email
+  const toggleCreatorSelection = (creatorId: number) => {
+    const newSelected = new Set(selectedCreators)
+    if (newSelected.has(creatorId)) {
+      newSelected.delete(creatorId)
+    } else {
+      newSelected.add(creatorId)
+    }
+    setSelectedCreators(newSelected)
+  }
+
+  // Send mass email
+  async function sendMassEmail() {
+    if (!activeClient || selectedCreators.size === 0) return
+    setIsSendingMassEmail(true)
+
+    const payload = {
+      client_id: activeClient.id,
+      creator_ids: Array.from(selectedCreators),
+      template_id: selectedTemplate,
+      subject: selectedTemplate ? undefined : subject,
+      body: selectedTemplate ? undefined : body,
+    }
+
+    try {
+      await fetch(`${API_BASE}/admin/mass-outreach`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("jwt")}`,
+        },
+        body: JSON.stringify(payload),
+      })
+      setMassEmailModalOpen(false)
+      setSelectedCreators(new Set())
+      setSubject("")
+      setBody("")
+      setSelectedTemplate(null)
+    } catch (error) {
+      console.error("Failed to send mass email:", error)
+    } finally {
+      setIsSendingMassEmail(false)
+    }
+  }
+
   if (errClients) return <div className="p-4 text-red-500">Error loading clients.</div>
   if (!clients) return <div className="p-4">Loading clients…</div>
 
@@ -212,52 +260,69 @@ export default function AdminDashboard() {
             <p className="text-white/70">Select a client from the sidebar to view their outreach.</p>
           ) : (
             <>
-              <h1 className="text-2xl font-bold mb-4">Outreach for {activeClient.email}</h1>
+              <div className="flex justify-between items-center mb-6">
+                <h1 className="text-2xl font-bold">Creators for {activeClient.email}</h1>
+                {selectedCreators.size > 0 && (
+                  <button
+                    onClick={() => setMassEmailModalOpen(true)}
+                    className="bg-[#ff4d8d] text-black px-4 py-2 rounded hover:bg-[#ff4d8d]/90 transition"
+                  >
+                    Send Mass Email ({selectedCreators.size} selected)
+                  </button>
+                )}
+              </div>
 
               {errCreators && <p className="text-red-500 mb-4">Error loading creators.</p>}
               {!creators ? (
                 <p>Loading creators…</p>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {creators.map(c => {
                     const already = contactedSet.has(c.id)
                     return (
                       <div
                         key={c.id}
-                        className="bg-black/20 rounded-lg border border-white/10 overflow-hidden hover:border-[#ff4d8d]/50 transition-all"
+                        className={`bg-black/20 rounded-lg p-4 border ${
+                          selectedCreators.has(c.id) ? "border-[#ff4d8d]" : "border-white/10"
+                        }`}
                       >
-                        <div className="h-24 bg-gradient-to-r from-[#ff4d8d]/10 to-[#ff1a6c]/10" />
-                        <div className="p-5 pt-0">
-                          <div className="flex items-center -mt-8 mb-3">
-                            <div className="h-16 w-16 rounded-full bg-[#ff4d8d]/10 border-4 border-black/20 flex items-center justify-center text-xl font-bold">
-                              {c.name.charAt(0).toUpperCase()}
-                            </div>
-                          </div>
-                          <h3 className="text-lg font-semibold mb-1">{c.name}</h3>
-                          <p className="text-sm text-white/70 mb-2">{c.emails[0] || "No email"}</p>
-                          <p className="text-xs text-white/50 mb-4">{c.platforms.join(", ")}</p>
-                          <div className="flex justify-between items-center">
-                            <Link
-                              href={`/admin/creators/${c.id}`}
-                              prefetch={false}
-                              className="text-[#ff4d8d] hover:text-[#ff1a6c] text-sm font-medium"
-                            >
-                              View Profile
-                            </Link>
-                            <button
-                              onClick={() => openContact(c)}
-                              disabled={already || loadingId === c.id}
-                              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                                already
-                                  ? "bg-gray-600 text-white/50 cursor-not-allowed"
-                                  : loadingId === c.id
-                                  ? "bg-[#ff4d8d]/50"
-                                  : "bg-[#ff4d8d] hover:bg-[#ff1a6c] text-white"
-                              }`}
-                            >
-                              {already ? "Already contacted" : loadingId === c.id ? "Sending…" : "Contact"}
-                            </button>
-                          </div>
+                        <div className="flex justify-between items-start mb-2">
+                          <h3 className="font-medium">{c.name}</h3>
+                          <input
+                            type="checkbox"
+                            checked={selectedCreators.has(c.id)}
+                            onChange={() => toggleCreatorSelection(c.id)}
+                            className="w-5 h-5 rounded border-2 border-[#ff4d8d]/50 bg-transparent
+                              checked:bg-[#ff4d8d] checked:border-[#ff4d8d]
+                              focus:ring-2 focus:ring-[#ff4d8d] focus:ring-offset-2 focus:ring-offset-gray-900
+                              cursor-pointer transition-all duration-200
+                              hover:border-[#ff4d8d] hover:scale-110
+                              checked:hover:scale-110"
+                          />
+                        </div>
+                        <p className="text-sm text-white/70 mb-2">{c.emails[0] || "No email"}</p>
+                        <p className="text-xs text-white/50 mb-4">{c.platforms.join(", ")}</p>
+                        <div className="flex justify-between items-center">
+                          <Link
+                            href={`/admin/creators/${c.id}`}
+                            prefetch={false}
+                            className="text-[#ff4d8d] hover:text-[#ff1a6c] text-sm font-medium"
+                          >
+                            View Profile
+                          </Link>
+                          <button
+                            onClick={() => openContact(c)}
+                            disabled={already || loadingId === c.id}
+                            className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                              already
+                                ? "bg-gray-600 text-white/50 cursor-not-allowed"
+                                : loadingId === c.id
+                                ? "bg-[#ff4d8d]/50"
+                                : "bg-[#ff4d8d] hover:bg-[#ff1a6c] text-white"
+                            }`}
+                          >
+                            {already ? "Already contacted" : loadingId === c.id ? "Sending…" : "Contact"}
+                          </button>
                         </div>
                       </div>
                     )
@@ -371,6 +436,143 @@ export default function AdminDashboard() {
           )}
         </main>
       </div>
+
+      {/* Mass Email Modal */}
+      {massEmailModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] rounded-lg p-6 w-full max-w-2xl">
+            <h2 className="text-xl font-bold mb-4">Send Mass Email</h2>
+            <p className="text-white/70 mb-4">
+              Sending to {selectedCreators.size} creators
+            </p>
+
+            {/* Template Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Email Template</label>
+              <select
+                value={selectedTemplate || ""}
+                onChange={(e) => handleTemplateSelect(e.target.value || null)}
+                className="w-full bg-black/20 border border-white/10 rounded px-3 py-2"
+              >
+                <option value="">Write custom message</option>
+                {Object.entries(templates).map(([id, template]) => (
+                  <option key={id} value={id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Email Content */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Subject</label>
+                <input
+                  type="text"
+                  value={subject}
+                  onChange={(e) => handleContentChange("subject", e.target.value)}
+                  className="w-full bg-black/20 border border-white/10 rounded px-3 py-2"
+                  placeholder="Email subject"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Preview</label>
+                <div className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 min-h-[38px]">
+                  {previewSubject}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Message</label>
+                <textarea
+                  value={body}
+                  onChange={(e) => handleContentChange("body", e.target.value)}
+                  className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 h-32"
+                  placeholder="Email body"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Preview</label>
+                <div className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 h-32 overflow-auto">
+                  {previewBody}
+                </div>
+              </div>
+            </div>
+
+            {/* Original Template Reference */}
+            {originalTemplate && (
+              <div className="mt-4 p-4 bg-black/20 rounded">
+                <h3 className="text-sm font-medium mb-2">Original Template</h3>
+                <p className="text-sm text-white/70 mb-1">
+                  <strong>Subject:</strong> {originalTemplate.subject}
+                </p>
+                <p className="text-sm text-white/70">
+                  <strong>Body:</strong> {originalTemplate.body}
+                </p>
+                <button
+                  onClick={() => {
+                    setSubject(originalTemplate.subject)
+                    setBody(originalTemplate.body)
+                    setPreviewSubject(originalTemplate.subject)
+                    setPreviewBody(originalTemplate.body.replace(/\${creator_name}/g, "Creator"))
+                  }}
+                  className="mt-2 text-sm text-[#ff4d8d] hover:text-[#ff4d8d]/80"
+                >
+                  Reset to Original
+                </button>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-4 mt-6">
+              <button
+                onClick={() => setMassEmailModalOpen(false)}
+                className="px-4 py-2 rounded border border-white/10 hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={sendMassEmail}
+                disabled={isSendingMassEmail}
+                className="bg-[#ff4d8d] text-black px-4 py-2 rounded hover:bg-[#ff4d8d]/90 transition disabled:opacity-50"
+              >
+                {isSendingMassEmail ? "Sending..." : "Send Mass Email"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mass Outreach Floating Button */}
+      {selectedCreators.size > 0 && (
+        <div className="fixed bottom-8 right-8 z-50">
+          <button
+            onClick={() => setMassEmailModalOpen(true)}
+            className="bg-gradient-to-r from-[#ff4d8d] to-[#ff1a6c] text-white px-6 py-3 rounded-full
+              shadow-[0_0_20px_rgba(255,77,141,0.3)] flex items-center space-x-2 
+              transition-all duration-300 hover:scale-105 hover:shadow-[0_0_30px_rgba(255,77,141,0.5)]
+              backdrop-blur-sm border border-white/10"
+          >
+            <span className="text-lg font-semibold">
+              Send Mass Outreach ({selectedCreators.size})
+            </span>
+            <svg
+              className="w-6 h-6 animate-pulse"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   )
 }
