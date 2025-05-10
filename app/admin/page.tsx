@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import useSWR from "swr"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -9,7 +9,9 @@ import {
   Users,
   CreditCard,
   X,
+  LayoutGrid,
 } from "lucide-react"
+import { jwtDecode } from "jwt-decode"
 
 const rawBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const API_BASE = rawBase.replace(/\/+$/, "")
@@ -48,6 +50,36 @@ const fetcher = async (url: string) => {
   return res.json()
 }
 
+function useAdminEmail() {
+  const [email, setEmail] = useState<string>("")
+  useEffect(() => {
+    const token = localStorage.getItem("jwt")
+    if (token) {
+      try {
+        const decoded: any = jwtDecode(token)
+        const e = decoded.email || decoded.user?.email || decoded.sub || decoded.preferred_username
+        if (e) {
+          setEmail(e)
+          return
+        }
+      } catch (error) {
+        console.error("Error decoding JWT:", error)
+      }
+    }
+    // fallback: fetch from /users/me
+    fetch(`${API_BASE}/users/me`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.email) setEmail(data.email)
+        else setEmail("Not signed in")
+      })
+      .catch(() => setEmail("Not signed in"))
+  }, [])
+  return email
+}
+
 export default function AdminDashboard() {
   const router = useRouter()
   const [activeClient, setActiveClient] = useState<Client | null>(null)
@@ -64,6 +96,9 @@ export default function AdminDashboard() {
   const [selectedCreators, setSelectedCreators] = useState<Set<number>>(new Set())
   const [massEmailModalOpen, setMassEmailModalOpen] = useState(false)
   const [isSendingMassEmail, setIsSendingMassEmail] = useState(false)
+  const [filterType, setFilterType] = useState<"all" | "withEmail" | "withProfile">("all")
+  const [showLogout, setShowLogout] = useState(false)
+  const adminEmail = useAdminEmail()
 
   // fetch clients
   const { data: clients, error: errClients } = useSWR<Client[]>(
@@ -206,38 +241,26 @@ export default function AdminDashboard() {
   if (!clients) return <div className="p-4">Loading clients…</div>
 
   return (
-    <div className="min-h-screen bg-gradient-to-r from-[#0a0a0a] via-[#1a1a1a] to-[#0a0a0a] text-white">
-      {/* Top Nav */}
-      <header className="container mx-auto px-4 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Zap className="h-8 w-8 text-[#ff4d8d] drop-shadow-[0_0_20px_rgba(255,77,141,0.7)]" />
-          <span className="text-lg font-semibold">Admin Dashboard</span>
-        </div>
-        <button
-          onClick={() => {
-            localStorage.removeItem("jwt")
-            router.push("/login")
-          }}
-          className="text-sm font-medium text-white/90 hover:text-white transition-colors"
-        >
-          Logout
-        </button>
-      </header>
-
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-64 bg-black/20 border-r border-white/10 py-6 px-4 space-y-6">
+    <div className="min-h-screen flex bg-gradient-to-r from-[#0a0a0a] via-[#1a1a1a] to-[#0a0a0a] text-white">
+      {/* Sidebar */}
+      <aside className="flex flex-col w-64 bg-black/20 border-r border-white/10 py-6 px-4 justify-between">
+        <div>
+          <div className="flex items-center gap-2 mb-8">
+            <Zap className="h-8 w-8 text-[#ff4d8d] drop-shadow-[0_0_20px_rgba(255,77,141,0.7)]" />
+            <span className="text-lg font-semibold">CreatorPulse</span>
+          </div>
           <nav className="space-y-2">
             <button
               onClick={() => {
                 setActiveClient(null)
                 setActivePlatform(null)
               }}
-              className="block w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
+              className="flex items-center gap-2 w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
             >
-              Home
+              <LayoutGrid className="h-4 w-4" />
+              Dashboard
             </button>
-            <p className="px-3 text-sm font-medium text-white/70">Clients</p>
+            <p className="px-3 text-sm font-medium text-white/70 mt-6 mb-2">Clients</p>
             {clients.map(c => (
               <button
                 key={c.id}
@@ -245,32 +268,70 @@ export default function AdminDashboard() {
                   setActiveClient(c)
                   setActivePlatform(null)
                 }}
-                className={`flex items-center w-full text-left px-3 py-2 rounded transition ${
+                className={`flex items-center w-full text-left px-3 py-2 rounded transition gap-2 ${
                   c.id === activeClient?.id
                     ? "bg-[#ff4d8d] text-black"
                     : "hover:bg-[#ff4d8d]/10"
                 }`}
               >
-                <Users className="h-4 w-4 mr-2" /> {c.email}
+                <Users className="h-4 w-4" />
+                <span className="truncate">{c.email}</span>
               </button>
             ))}
-            <button
-              onClick={() => router.push("/admin/payments")}
-              className="block w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
-            >
-              <CreditCard className="h-4 w-4 mr-2" /> Payments
-            </button>
-            <button
-              onClick={() => router.push("/admin/twitter")}
-              className="block w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
-            >
-              <X className="h-4 w-4 mr-2" /> Twitter
-            </button>
+            <div className="mt-6 space-y-2">
+              <button
+                onClick={() => router.push("/admin/payments")}
+                className="flex items-center w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition gap-2"
+              >
+                <CreditCard className="h-4 w-4" /> Payments
+              </button>
+              <button
+                onClick={() => router.push("/admin/twitter")}
+                className="flex items-center w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition gap-2"
+              >
+                <X className="h-4 w-4" /> Twitter
+              </button>
+            </div>
           </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6 container mx-auto">
+        </div>
+        {/* User Info at bottom */}
+        <div className="relative">
+          <button
+            className="flex items-center gap-3 mt-8 border-t border-white/10 pt-6 px-2 w-full hover:bg-[#ff4d8d]/10 rounded transition"
+            onClick={() => setShowLogout(v => !v)}
+          >
+            <div className="w-10 h-10 rounded-full bg-[#ff4d8d]/20 flex items-center justify-center text-lg font-bold">
+              {adminEmail[0]?.toUpperCase() || "A"}
+            </div>
+            <div className="flex-1 text-left">
+              <div className="font-medium text-white/90 text-sm truncate">Admin User</div>
+              <div className="text-xs text-white/50 truncate">{adminEmail}</div>
+            </div>
+          </button>
+          {showLogout && (
+            <div className="absolute left-0 bottom-16 w-full bg-black/90 border border-white/10 rounded shadow-lg z-50 p-4 flex flex-col items-start">
+              <span className="text-xs text-white/60 mb-2">Signed in as</span>
+              <span className="text-sm text-white mb-4 truncate">{adminEmail}</span>
+              <button
+                onClick={() => {
+                  localStorage.removeItem("jwt")
+                  router.push("/login")
+                }}
+                className="w-full text-left px-3 py-2 rounded bg-[#ff4d8d] text-black font-semibold hover:bg-[#ff1a6c] transition"
+              >
+                Log out
+              </button>
+            </div>
+          )}
+        </div>
+      </aside>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-h-screen">
+        {/* Topbar */}
+        <header className="w-full px-8 py-4 flex items-center justify-end border-b border-white/10 bg-black/10">
+          {/* No logout here anymore */}
+        </header>
+        <main className="flex-1 p-8 overflow-y-auto">
           {!activeClient ? (
             <p className="text-white/70">Select a client from the sidebar to view their outreach.</p>
           ) : (
@@ -331,12 +392,51 @@ export default function AdminDashboard() {
                 </button>
               </div>
 
+              {/* Additional Filters */}
+              <div className="mb-6 flex gap-4">
+                <button
+                  onClick={() => setFilterType("all")}
+                  className={`px-4 py-2 rounded transition ${
+                    filterType === "all"
+                      ? "bg-[#ff4d8d] text-white"
+                      : "bg-black/20 text-white/70 hover:text-white"
+                  }`}
+                >
+                  All Creators
+                </button>
+                <button
+                  onClick={() => setFilterType("withEmail")}
+                  className={`px-4 py-2 rounded transition ${
+                    filterType === "withEmail"
+                      ? "bg-[#ff4d8d] text-white"
+                      : "bg-black/20 text-white/70 hover:text-white"
+                  }`}
+                >
+                  With Email
+                </button>
+                <button
+                  onClick={() => setFilterType("withProfile")}
+                  className={`px-4 py-2 rounded transition ${
+                    filterType === "withProfile"
+                      ? "bg-[#ff4d8d] text-white"
+                      : "bg-black/20 text-white/70 hover:text-white"
+                  }`}
+                >
+                  With Profile
+                </button>
+              </div>
+
               {errCreators && <p className="text-red-500 mb-4">Error loading creators.</p>}
               {!creators ? (
                 <p>Loading creators…</p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {creators
+                    .filter(c => {
+                      if (filterType === "withEmail") return c.emails.length > 0
+                      if (filterType === "withProfile") return c.profile_urls.length > 0
+                      return true
+                    })
                     .map(c => {
                     const already = contactedSet.has(c.id)
                     return (
