@@ -8,6 +8,7 @@ import {
   Zap,
   Users,
   CreditCard,
+  X,
 } from "lucide-react"
 
 const rawBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -23,6 +24,7 @@ interface AdminCreator {
   profile_urls: string[]
   emails: string[]
   platforms: string[]
+  twitter_handle?: string
 }
 interface OutreachLog {
   creator_id: number
@@ -49,6 +51,7 @@ const fetcher = async (url: string) => {
 export default function AdminDashboard() {
   const router = useRouter()
   const [activeClient, setActiveClient] = useState<Client | null>(null)
+  const [activePlatform, setActivePlatform] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<AdminCreator | null>(null)
   const [subject, setSubject] = useState("")
@@ -69,7 +72,7 @@ export default function AdminDashboard() {
   )
   // fetch creators for selected client
   const { data: creators, error: errCreators } = useSWR<AdminCreator[]>(
-    activeClient ? `${API_BASE}/admin/clients/${activeClient.id}/creators` : null,
+    activeClient ? `${API_BASE}/admin/clients/${activeClient.id}/creators${activePlatform ? `?platform=${activePlatform}` : ''}` : null,
     fetcher
   )
   // fetch logs (only this client's outreach)
@@ -226,7 +229,10 @@ export default function AdminDashboard() {
         <aside className="w-64 bg-black/20 border-r border-white/10 py-6 px-4 space-y-6">
           <nav className="space-y-2">
             <button
-              onClick={() => setActiveClient(null)}
+              onClick={() => {
+                setActiveClient(null)
+                setActivePlatform(null)
+              }}
               className="block w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
             >
               Home
@@ -235,7 +241,10 @@ export default function AdminDashboard() {
             {clients.map(c => (
               <button
                 key={c.id}
-                onClick={() => setActiveClient(c)}
+                onClick={() => {
+                  setActiveClient(c)
+                  setActivePlatform(null)
+                }}
                 className={`flex items-center w-full text-left px-3 py-2 rounded transition ${
                   c.id === activeClient?.id
                     ? "bg-[#ff4d8d] text-black"
@@ -250,6 +259,12 @@ export default function AdminDashboard() {
               className="block w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
             >
               <CreditCard className="h-4 w-4 mr-2" /> Payments
+            </button>
+            <button
+              onClick={() => router.push("/admin/twitter")}
+              className="block w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
+            >
+              <X className="h-4 w-4 mr-2" /> Twitter
             </button>
           </nav>
         </aside>
@@ -272,12 +287,57 @@ export default function AdminDashboard() {
                 )}
               </div>
 
+              {/* Platform Filter */}
+              <div className="mb-6 flex gap-4">
+                <button
+                  onClick={() => setActivePlatform(null)}
+                  className={`px-4 py-2 rounded transition ${
+                    !activePlatform
+                      ? "bg-[#ff4d8d] text-white"
+                      : "bg-black/20 text-white/70 hover:text-white"
+                  }`}
+                >
+                  All Platforms
+                </button>
+                <button
+                  onClick={() => setActivePlatform("reddit")}
+                  className={`px-4 py-2 rounded transition ${
+                    activePlatform === "reddit"
+                      ? "bg-[#ff4d8d] text-white"
+                      : "bg-black/20 text-white/70 hover:text-white"
+                  }`}
+                >
+                  Reddit
+                </button>
+                <button
+                  onClick={() => setActivePlatform("twitter")}
+                  className={`px-4 py-2 rounded transition ${
+                    activePlatform === "twitter"
+                      ? "bg-[#ff4d8d] text-white"
+                      : "bg-black/20 text-white/70 hover:text-white"
+                  }`}
+                >
+                  Twitter
+                </button>
+                <button
+                  onClick={() => setActivePlatform("test")}
+                  className={`px-4 py-2 rounded transition ${
+                    activePlatform === "test"
+                      ? "bg-[#ff4d8d] text-white"
+                      : "bg-black/20 text-white/70 hover:text-white"
+                  }`}
+                >
+                  Test
+                </button>
+              </div>
+
               {errCreators && <p className="text-red-500 mb-4">Error loading creators.</p>}
               {!creators ? (
                 <p>Loading creators…</p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {creators.map(c => {
+                  {creators
+                    .map(c => {
                     const already = contactedSet.has(c.id)
                     return (
                       <div
@@ -310,19 +370,31 @@ export default function AdminDashboard() {
                           >
                             View Profile
                           </Link>
-                          <button
-                            onClick={() => openContact(c)}
-                            disabled={already || loadingId === c.id}
-                            className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                              already
-                                ? "bg-gray-600 text-white/50 cursor-not-allowed"
-                                : loadingId === c.id
-                                ? "bg-[#ff4d8d]/50"
-                                : "bg-[#ff4d8d] hover:bg-[#ff1a6c] text-white"
-                            }`}
-                          >
-                            {already ? "Already contacted" : loadingId === c.id ? "Sending…" : "Contact"}
-                          </button>
+                          <div className="flex gap-2">
+                            {c.platforms.includes("twitter") && (
+                              <a
+                                href={`https://twitter.com/messages/compose?recipient_id=${c.twitter_handle}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-1 bg-[#1DA1F2] text-white rounded-lg text-sm hover:bg-[#1a8cd8]"
+                              >
+                                DM on X
+                              </a>
+                            )}
+                            <button
+                              onClick={() => openContact(c)}
+                              disabled={already || loadingId === c.id}
+                              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                                already
+                                  ? "bg-gray-600 text-white/50 cursor-not-allowed"
+                                  : loadingId === c.id
+                                  ? "bg-[#ff4d8d]/50"
+                                  : "bg-[#ff4d8d] hover:bg-[#ff1a6c] text-white"
+                              }`}
+                            >
+                              {already ? "Already contacted" : loadingId === c.id ? "Sending…" : "Contact"}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )
