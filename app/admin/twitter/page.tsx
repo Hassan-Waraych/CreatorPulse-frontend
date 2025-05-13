@@ -5,7 +5,7 @@ import useSWR from "swr"
 import { X, Zap, Users, CreditCard } from "lucide-react"
 import { TwitterTweetEmbed } from 'react-twitter-embed'
 import { useRouter } from "next/navigation"
-import jwt_decode from "jwt-decode"
+import { jwtDecode, JwtPayload } from "jwt-decode"
 
 const rawBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const API_BASE = rawBase.replace(/\/+$/, "")
@@ -50,8 +50,8 @@ function getAdminEmail() {
   try {
     const token = localStorage.getItem("jwt")
     if (!token) return "admin@site.com"
-    const decoded = jwt_decode(token)
-    return decoded.email || decoded.user?.email || decoded.sub || "admin@site.com"
+    const decoded = jwtDecode(token) as JwtPayload & { email?: string; user?: { email?: string }; preferred_username?: string }
+    return decoded.email || decoded.user?.email || decoded.sub || decoded.preferred_username || "admin@site.com"
   } catch {
     return "admin@site.com"
   }

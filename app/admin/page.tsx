@@ -10,6 +10,8 @@ import {
   CreditCard,
   X,
   LayoutGrid,
+  Mail,
+  Loader2,
 } from "lucide-react"
 import { jwtDecode } from "jwt-decode"
 
@@ -26,7 +28,8 @@ interface AdminCreator {
   profile_urls: string[]
   emails: string[]
   platforms: string[]
-  twitter_handle?: string
+  twitter_id?: string
+  twitter_username?: string
 }
 interface OutreachLog {
   creator_id: number
@@ -39,6 +42,13 @@ interface Template {
   name: string
   subject: string
   body: string
+}
+interface Email {
+  id: string
+  to: string
+  subject: string
+  snippet: string
+  timestamp: string
 }
 
 const fetcher = async (url: string) => {
@@ -99,6 +109,10 @@ export default function AdminDashboard() {
   const [filterType, setFilterType] = useState<"all" | "withEmail" | "withProfile">("all")
   const [showLogout, setShowLogout] = useState(false)
   const adminEmail = useAdminEmail()
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [creatorToDelete, setCreatorToDelete] = useState<AdminCreator | null>(null)
+  const [creators, setCreators] = useState<AdminCreator[]>([])
+  const [activeTab, setActiveTab] = useState<'creators' | 'inbox'>('creators')
 
   // fetch clients
   const { data: clients, error: errClients } = useSWR<Client[]>(
@@ -106,7 +120,7 @@ export default function AdminDashboard() {
     fetcher
   )
   // fetch creators for selected client
-  const { data: creators, error: errCreators } = useSWR<AdminCreator[]>(
+  const { data: creatorsData, error: errCreators } = useSWR<AdminCreator[]>(
     activeClient ? `${API_BASE}/admin/clients/${activeClient.id}/creators${activePlatform ? `?platform=${activePlatform}` : ''}` : null,
     fetcher
   )
@@ -118,6 +132,11 @@ export default function AdminDashboard() {
   // fetch available templates with full content
   const { data: templates = {}, error: errTemplates } = useSWR<Record<string, Template>>(
     `${API_BASE}/admin/templates`,
+    fetcher
+  )
+  // fetch inbox
+  const { data: inbox } = useSWR<Email[]>(
+    activeClient ? `${API_BASE}/admin/clients/${activeClient.id}/inbox` : null,
     fetcher
   )
 
@@ -237,6 +256,42 @@ export default function AdminDashboard() {
     }
   }
 
+  const handleDelete = async (creator: AdminCreator) => {
+    setCreatorToDelete(creator)
+    setIsDeleteModalOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!creatorToDelete) return
+    
+    try {
+      const response = await fetch(`${API_BASE}/admin/creators/${creatorToDelete.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem("jwt")}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to delete creator')
+      }
+
+      // Remove the creator from the list
+      setCreators(creators.filter(c => c.id !== creatorToDelete.id))
+      setIsDeleteModalOpen(false)
+      setCreatorToDelete(null)
+    } catch (error) {
+      console.error('Error deleting creator:', error)
+      alert('Failed to delete creator. Please try again.')
+    }
+  }
+
+  useEffect(() => {
+    if (creatorsData) {
+      setCreators(creatorsData);
+    }
+  }, [creatorsData]);
+
   if (errClients) return <div className="p-4 text-red-500">Error loading clients.</div>
   if (!clients) return <div className="p-4">Loading clients…</div>
 
@@ -260,37 +315,48 @@ export default function AdminDashboard() {
               <LayoutGrid className="h-4 w-4" />
               Dashboard
             </button>
-            <p className="px-3 text-sm font-medium text-white/70 mt-6 mb-2">Clients</p>
-            {clients.map(c => (
-              <button
-                key={c.id}
-                onClick={() => {
-                  setActiveClient(c)
-                  setActivePlatform(null)
-                }}
-                className={`flex items-center w-full text-left px-3 py-2 rounded transition gap-2 ${
-                  c.id === activeClient?.id
-                    ? "bg-[#ff4d8d] text-black"
-                    : "hover:bg-[#ff4d8d]/10"
-                }`}
-              >
-                <Users className="h-4 w-4" />
-                <span className="truncate">{c.email}</span>
-              </button>
-            ))}
-            <div className="mt-6 space-y-2">
-              <button
-                onClick={() => router.push("/admin/payments")}
-                className="flex items-center w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition gap-2"
-              >
-                <CreditCard className="h-4 w-4" /> Payments
-              </button>
-              <button
-                onClick={() => router.push("/admin/twitter")}
-                className="flex items-center w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition gap-2"
-              >
-                <X className="h-4 w-4" /> Twitter
-              </button>
+            <button
+              onClick={() => router.push("/admin/inbox")}
+              className="flex items-center gap-2 w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
+            >
+              <Mail className="h-4 w-4" />
+              Inbox
+            </button>
+            <button
+              onClick={() => router.push("/admin/payments")}
+              className="flex items-center gap-2 w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
+            >
+              <CreditCard className="h-4 w-4" />
+              Payments
+            </button>
+            <button
+              onClick={() => router.push("/admin/twitter")}
+              className="flex items-center gap-2 w-full text-left px-3 py-2 rounded hover:bg-[#ff4d8d]/10 transition"
+            >
+              <X className="h-4 w-4" />
+              Twitter
+            </button>
+
+            <div className="mt-8">
+              <p className="px-3 text-sm font-medium text-white/70 mb-2">Clients</p>
+              {clients.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    setActiveClient(c)
+                    setActivePlatform(null)
+                    setActiveTab('creators')
+                  }}
+                  className={`flex items-center w-full text-left px-3 py-2 rounded transition gap-2 ${
+                    c.id === activeClient?.id && activeTab === 'creators'
+                      ? "bg-[#ff4d8d] text-black"
+                      : "hover:bg-[#ff4d8d]/10"
+                  }`}
+                >
+                  <Users className="h-4 w-4" />
+                  <span className="truncate">{c.email}</span>
+                </button>
+              ))}
             </div>
           </nav>
         </div>
@@ -426,8 +492,34 @@ export default function AdminDashboard() {
                 </button>
               </div>
 
+              {/* Active Tab */}
+              {activeClient && (
+                <div className="mb-6 flex gap-4">
+                  <button
+                    onClick={() => setActiveTab('creators')}
+                    className={`px-4 py-2 rounded transition ${
+                      activeTab === 'creators'
+                        ? "bg-[#ff4d8d] text-white"
+                        : "bg-black/20 text-white/70 hover:text-white"
+                    }`}
+                  >
+                    Creators
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('inbox')}
+                    className={`px-4 py-2 rounded transition ${
+                      activeTab === 'inbox'
+                        ? "bg-[#ff4d8d] text-white"
+                        : "bg-black/20 text-white/70 hover:text-white"
+                    }`}
+                  >
+                    Inbox
+                  </button>
+                </div>
+              )}
+
               {errCreators && <p className="text-red-500 mb-4">Error loading creators.</p>}
-              {!creators ? (
+              {!creatorsData ? (
                 <p>Loading creators…</p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -473,7 +565,7 @@ export default function AdminDashboard() {
                           <div className="flex gap-2">
                             {c.platforms.includes("twitter") && (
                               <a
-                                href={`https://twitter.com/messages/compose?recipient_id=${c.twitter_handle}`}
+                                href={`https://x.com/messages/compose?recipient_id=${c.twitter_id}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="px-3 py-1 bg-[#1DA1F2] text-white rounded-lg text-sm hover:bg-[#1a8cd8]"
@@ -488,11 +580,26 @@ export default function AdminDashboard() {
                                 already
                                   ? "bg-gray-600 text-white/50 cursor-not-allowed"
                                   : loadingId === c.id
-                                  ? "bg-[#ff4d8d]/50"
+                                  ? "bg-[#ff4d8d]/50 flex items-center gap-2"
                                   : "bg-[#ff4d8d] hover:bg-[#ff1a6c] text-white"
                               }`}
                             >
-                              {already ? "Already contacted" : loadingId === c.id ? "Sending…" : "Contact"}
+                              {already ? (
+                                "Already contacted"
+                              ) : loadingId === c.id ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  Sending...
+                                </>
+                              ) : (
+                                "Contact"
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleDelete(c)}
+                              className="px-3 py-1 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors"
+                            >
+                              Delete
                             </button>
                           </div>
                         </div>
@@ -743,6 +850,81 @@ export default function AdminDashboard() {
               />
             </svg>
           </button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && creatorToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4">Delete Creator</h3>
+            <p className="mb-4">
+              Are you sure you want to delete {creatorToDelete.name}? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-4">
+              <button
+                onClick={() => {
+                  setIsDeleteModalOpen(false)
+                  setCreatorToDelete(null)
+                }}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inbox Content */}
+      {activeTab === 'inbox' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold">Email History</h2>
+            <div className="text-sm text-white/70">
+              {inbox ? `${inbox.length} emails` : 'Loading...'}
+            </div>
+          </div>
+          
+          {!inbox ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#ff4d8d] mx-auto mb-4"></div>
+              <p className="text-white/70">Loading emails...</p>
+            </div>
+          ) : inbox.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-white/70">No emails found in the inbox.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {inbox.map(email => (
+                <div 
+                  key={email.id} 
+                  className="bg-black/20 rounded-lg p-4 hover:bg-black/30 transition-colors cursor-pointer"
+                  onClick={() => window.open(`https://mail.google.com/mail/u/0/#inbox/${email.id}`, '_blank')}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <h3 className="font-medium text-white">{email.subject}</h3>
+                      <p className="text-sm text-white/70 mt-1">To: {email.to}</p>
+                      {email.snippet && (
+                        <p className="mt-2 text-sm text-white/70 line-clamp-2">{email.snippet}</p>
+                      )}
+                    </div>
+                    <span className="text-xs text-white/50 ml-4 whitespace-nowrap">
+                      {new Date(email.timestamp).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
