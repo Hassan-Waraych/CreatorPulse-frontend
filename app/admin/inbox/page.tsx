@@ -40,9 +40,16 @@ interface Email {
   body?: string
   creator_id?: number
   status?: string
-  reply?: string
-  reply_date?: string
+  has_new_reply?: boolean
   message_id?: string
+  messages?: Array<{
+    id: string
+    sender: string
+    content: string
+    sent_at: string
+    is_from_us: boolean
+  }>
+  thread_id?: string
 }
 
 type SortField = 'date' | 'subject' | 'status'
@@ -80,16 +87,17 @@ function cleanReplyContent(reply: string): string {
 
 export default function InboxPage() {
   const router = useRouter()
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null)
-  const [showClientDropdown, setShowClientDropdown] = useState(false)
+  const [emails, setEmails] = useState<Email[]>([])
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null)
   const [showEmailModal, setShowEmailModal] = useState(false)
+  const [replyText, setReplyText] = useState("")
+  const [isSendingReply, setIsSendingReply] = useState(false)
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null)
+  const [showClientDropdown, setShowClientDropdown] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [sortField, setSortField] = useState<SortField>('date')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
-  const [replyText, setReplyText] = useState("")
-  const [isSendingReply, setIsSendingReply] = useState(false)
 
   // Fetch clients
   const { data: clients = [] } = useSWR<Client[]>(
@@ -105,7 +113,7 @@ export default function InboxPage() {
   )
 
   // Fetch emails for selected client
-  const { data: emails = [], mutate: refreshEmails, isLoading } = useSWR<Email[]>(
+  const { data: fetchedEmails = [], mutate: refreshEmails, isLoading } = useSWR<Email[]>(
     selectedClient ? `${API_BASE}/admin/clients/${selectedClient.id}/inbox` : null,
     async (url: string) => {
       const token = localStorage.getItem("jwt")
@@ -114,23 +122,32 @@ export default function InboxPage() {
       })
       if (!res.ok) throw new Error("Failed to fetch emails")
       const data = await res.json()
+      console.log('Raw email data from API:', data)
       
-      // Deduplicate emails based on message_id
+      // Deduplicate emails based on thread_id instead of message_id
       const uniqueEmails = data.reduce((acc: Email[], email: Email) => {
-        const existingEmail = acc.find(e => e.message_id === email.message_id)
+        const existingEmail = acc.find(e => e.thread_id === email.thread_id)
         if (!existingEmail) {
           acc.push(email)
+        } else {
+          // If we find a duplicate, use the one with has_new_reply=true if either has it
+          if (email.has_new_reply) {
+            const index = acc.findIndex(e => e.thread_id === email.thread_id)
+            acc[index] = email
+          }
         }
         return acc
       }, [])
-
+      
+      console.log('Processed unique emails:', uniqueEmails)
       return uniqueEmails
     }
   )
 
   // Filter and sort emails
   const filteredAndSortedEmails = useMemo(() => {
-    let result = [...emails]
+    console.log('Filtering emails, fetchedEmails:', fetchedEmails)
+    let result = [...fetchedEmails]
 
     // Apply search filter
     if (searchQuery) {
@@ -166,8 +183,9 @@ export default function InboxPage() {
       return sortOrder === 'asc' ? comparison : -comparison
     })
 
+    console.log('Filtered and sorted emails:', result)
     return result
-  }, [emails, searchQuery, filterStatus, sortField, sortOrder])
+  }, [fetchedEmails, searchQuery, filterStatus, sortField, sortOrder])
 
   // Handle reply submission
   const handleReply = async () => {
@@ -211,9 +229,50 @@ export default function InboxPage() {
     }
   }, [selectedClient, refreshEmails])
 
-  const handleEmailClick = (email: Email) => {
+  // Update handleEmailClick to mark as read
+  const handleEmailClick = async (email: Email) => {
+    console.log('Email clicked:', email)
     setSelectedEmail(email)
     setShowEmailModal(true)
+    if (email.has_new_reply && email.thread_id) {
+      try {
+        console.log('Marking as read:', email.thread_id)
+        
+        // Update both the selected email and the email list optimistically
+        const updatedEmail = { ...email, has_new_reply: false }
+        setSelectedEmail(updatedEmail)
+        
+        // Update the SWR cache optimistically
+        await refreshEmails(
+          fetchedEmails.map(e => 
+            e.thread_id === email.thread_id ? updatedEmail : e
+          ),
+          false // Don't revalidate immediately
+        )
+        
+        // Then make the API call
+        const response = await fetch(`${API_BASE}/admin/outreach/mark-read/${email.thread_id}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem("jwt")}`,
+          },
+        })
+        
+        if (!response.ok) {
+          throw new Error('Failed to mark as read')
+        }
+        
+        console.log('Mark as read API call successful')
+        
+        // Revalidate the cache to ensure we have the latest data
+        await refreshEmails()
+      } catch (error) {
+        console.error('Error marking as read:', error)
+        // Revert both the selected email and the email list if it failed
+        setSelectedEmail(email)
+        await refreshEmails()
+      }
+    }
   }
 
   return (
@@ -370,30 +429,37 @@ export default function InboxPage() {
                 <div
                   key={email.id}
                   onClick={() => handleEmailClick(email)}
-                  className="p-4 rounded bg-black/20 border border-white/10 hover:border-[#ff4d8d]/50 transition cursor-pointer"
+                  className="p-4 rounded bg-black/20 border border-white/10 hover:border-[#ff4d8d]/50 transition cursor-pointer relative"
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <h3 className="font-medium">{email.subject}</h3>
-                      <p className="text-sm text-white/60">
-                        To: {email.to}
-                      </p>
-                    </div>
-                    <div className="text-sm text-white/60 flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      {new Date(email.date).toLocaleDateString()}
+                  <div className="flex items-start gap-3">
+                    {email.has_new_reply && (
+                      <div className="w-3 h-3 bg-yellow-400 rounded-full animate-pulse flex-shrink-0 mt-2" />
+                    )}
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h3 className="font-medium">{email.subject}</h3>
+                          <p className="text-sm text-white/60">
+                            To: {email.to}
+                          </p>
+                        </div>
+                        <div className="text-sm text-white/60 flex items-center gap-2">
+                          <Clock className="h-4 w-4" />
+                          {new Date(email.date).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <p className="text-sm text-white/80">{email.snippet}</p>
+                      {email.status && (
+                        <div className="mt-2 text-sm flex items-center gap-2">
+                          <span className="text-white/60">Status: </span>
+                          <span className={email.status === "replied" ? "text-green-400" : "text-yellow-400"}>
+                            {email.status}
+                          </span>
+                          {email.status === "replied" && <Reply className="h-4 w-4 text-green-400" />}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <p className="text-sm text-white/80">{email.snippet}</p>
-                  {email.status && (
-                    <div className="mt-2 text-sm flex items-center gap-2">
-                      <span className="text-white/60">Status: </span>
-                      <span className={email.status === "replied" ? "text-green-400" : "text-yellow-400"}>
-                        {email.status}
-                      </span>
-                      {email.status === "replied" && <Reply className="h-4 w-4 text-green-400" />}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -436,75 +502,78 @@ export default function InboxPage() {
                 )}
               </div>
             </div>
+            
             <div className="flex-1 overflow-y-auto p-6">
-              <div className="prose prose-invert max-w-none">
-                <div 
-                  className="whitespace-pre-wrap"
-                  dangerouslySetInnerHTML={{ 
-                    __html: selectedEmail.body 
-                      ? selectedEmail.body.replace(/\n/g, '<br>')
-                      : selectedEmail.snippet.replace(/\n/g, '<br>')
-                  }} 
-                />
-              </div>
-              {selectedEmail.reply && (
-                <div className="mt-8 pt-8 border-t border-white/10">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Reply className="h-5 w-5 text-green-400" />
-                    <h3 className="text-lg font-semibold">Previous Reply</h3>
-                    {selectedEmail.reply_date && (
-                      <span className="text-sm text-white/60">
-                        ({new Date(selectedEmail.reply_date).toLocaleString()})
-                      </span>
-                    )}
-                  </div>
-                  <div className="prose prose-invert max-w-none">
-                    <div 
-                      className="whitespace-pre-wrap"
-                      dangerouslySetInnerHTML={{ 
-                        __html: cleanReplyContent(selectedEmail.reply).replace(/\n/g, '<br>')
-                      }} 
-                    />
-                  </div>
+              {/* Conversation History */}
+              {selectedEmail.messages && selectedEmail.messages.length > 0 && (
+                <div className="space-y-6">
+                  {selectedEmail.messages.map((message, index) => (
+                    <div
+                      key={message.id}
+                      className={`p-4 rounded-lg ${
+                        message.is_from_us
+                          ? "bg-[#ff4d8d]/10 ml-8"
+                          : "bg-black/20 mr-8"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">
+                          {message.is_from_us ? "You" : message.sender}
+                        </span>
+                        <span className="text-xs text-white/60">
+                          {new Date(message.sent_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="prose prose-invert max-w-none">
+                        <div
+                          className="whitespace-pre-wrap"
+                          dangerouslySetInnerHTML={{
+                            __html: message.content.replace(/\n/g, '<br>')
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
-              {/* Always show reply section */}
-              <div className="mt-8 pt-8 border-t border-white/10">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold">Send Reply</h3>
-                  {selectedEmail.status === 'replied' && (
-                    <span className="text-sm text-white/60">Continuing conversation...</span>
+            </div>
+
+            {/* Reply Section */}
+            <div className="p-6 border-t border-white/10">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Send Reply</h3>
+                {selectedEmail.status === 'replied' && (
+                  <span className="text-sm text-white/60">Continuing conversation...</span>
+                )}
+              </div>
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="Type your reply..."
+                className="w-full h-32 px-3 py-2 bg-black/20 border border-white/10 rounded focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]"
+              />
+              <div className="flex justify-end mt-4">
+                <button
+                  onClick={handleReply}
+                  disabled={!replyText.trim() || isSendingReply}
+                  className={`px-4 py-2 rounded flex items-center gap-2 ${
+                    !replyText.trim() || isSendingReply
+                      ? "bg-gray-600 text-white/50 cursor-not-allowed"
+                      : "bg-[#ff4d8d] hover:bg-[#ff1a6c] text-white"
+                  }`}
+                >
+                  {isSendingReply ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      Send Reply
+                    </>
                   )}
-                </div>
-                <textarea
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  placeholder="Type your reply..."
-                  className="w-full h-32 px-3 py-2 bg-black/20 border border-white/10 rounded focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]"
-                />
-                <div className="flex justify-end mt-4">
-                  <button
-                    onClick={handleReply}
-                    disabled={!replyText.trim() || isSendingReply}
-                    className={`px-4 py-2 rounded flex items-center gap-2 ${
-                      !replyText.trim() || isSendingReply
-                        ? "bg-gray-600 text-white/50 cursor-not-allowed"
-                        : "bg-[#ff4d8d] hover:bg-[#ff1a6c] text-white"
-                    }`}
-                  >
-                    {isSendingReply ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Sending...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-4 w-4" />
-                        Send Reply
-                      </>
-                    )}
-                  </button>
-                </div>
+                </button>
               </div>
             </div>
           </div>
