@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import useSWR from "swr"
+import useSWR, { mutate } from "swr"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import {
@@ -195,8 +195,8 @@ export default function AdminDashboard() {
       client_id: activeClient.id,
       creator_id: selected.id,
       template_id: selectedTemplate,
-      subject: selectedTemplate ? undefined : subject,
-      body: selectedTemplate ? undefined : body,
+      subject: subject,
+      body: body,
     }
     await fetch(`${API_BASE}/admin/outreach`, {
       method: "POST",
@@ -231,8 +231,8 @@ export default function AdminDashboard() {
       client_id: activeClient.id,
       creator_ids: Array.from(selectedCreators),
       template_id: selectedTemplate,
-      subject: selectedTemplate ? undefined : subject,
-      body: selectedTemplate ? undefined : body,
+      subject: subject,
+      body: body,
     }
 
     try {
@@ -291,6 +291,71 @@ export default function AdminDashboard() {
       setCreators(creatorsData);
     }
   }, [creatorsData]);
+
+  const getSelectedEmails = async () => {
+    if (selectedCreators.size === 0) return;
+    
+    try {
+      const response = await fetch(`${API_BASE}/admin/creators/emails`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("jwt")}`,
+        },
+        body: JSON.stringify({
+          creator_ids: Array.from(selectedCreators)
+        }),
+      });
+      
+      const data = await response.json();
+      
+      // Create a formatted string of emails
+      const emailList = data.emails
+        .map((c: { name: string; email: string }) => `${c.name} <${c.email}>`)
+        .join("\n");
+      
+      // Copy to clipboard
+      await navigator.clipboard.writeText(emailList);
+      
+      // Show success message
+      alert("Emails copied to clipboard!");
+    } catch (error) {
+      console.error("Failed to get emails:", error);
+      alert("Failed to get emails");
+    }
+  };
+
+  const markSelectedAsContacted = async () => {
+    if (selectedCreators.size === 0 || !activeClient) return;
+    
+    try {
+      await fetch(`${API_BASE}/admin/creators/mark-contacted`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("jwt")}`,
+        },
+        body: JSON.stringify({
+          creator_ids: Array.from(selectedCreators),
+          client_id: activeClient.id
+        }),
+      });
+      
+      // Clear selection
+      setSelectedCreators(new Set());
+      
+      // Refresh the data
+      // Refresh logs data
+      mutate(`${API_BASE}/admin/logs?client_id=${activeClient.id}`);
+      // Refresh creators data
+      mutate(`${API_BASE}/admin/clients/${activeClient.id}/creators`);
+      
+      alert("Creators marked as contacted!");
+    } catch (error) {
+      console.error("Failed to mark creators as contacted:", error);
+      alert("Failed to mark creators as contacted");
+    }
+  };
 
   if (errClients) return <div className="p-4 text-red-500">Error loading clients.</div>
   if (!clients) return <div className="p-4">Loading clients…</div>
@@ -405,12 +470,26 @@ export default function AdminDashboard() {
               <div className="flex justify-between items-center mb-6">
                 <h1 className="text-2xl font-bold">Creators for {activeClient.email}</h1>
                 {selectedCreators.size > 0 && (
-                  <button
-                    onClick={() => setMassEmailModalOpen(true)}
-                    className="bg-[#ff4d8d] text-black px-4 py-2 rounded hover:bg-[#ff4d8d]/90 transition"
-                  >
-                    Send Mass Email ({selectedCreators.size} selected)
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={getSelectedEmails}
+                      className="bg-[#4d8dff] text-white px-4 py-2 rounded hover:bg-[#4d8dff]/90 transition"
+                    >
+                      Get Emails ({selectedCreators.size})
+                    </button>
+                    <button
+                      onClick={markSelectedAsContacted}
+                      className="bg-[#4dff8d] text-black px-4 py-2 rounded hover:bg-[#4dff8d]/90 transition"
+                    >
+                      Mark as Contacted ({selectedCreators.size})
+                    </button>
+                    <button
+                      onClick={() => setMassEmailModalOpen(true)}
+                      className="bg-[#ff4d8d] text-black px-4 py-2 rounded hover:bg-[#ff4d8d]/90 transition"
+                    >
+                      Send Mass Email ({selectedCreators.size})
+                    </button>
+                  </div>
                 )}
               </div>
 

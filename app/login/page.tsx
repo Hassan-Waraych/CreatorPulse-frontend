@@ -4,6 +4,7 @@ import React, { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Zap, ArrowLeft } from "lucide-react"
+import { toast } from 'react-hot-toast'
 
 const rawBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const API_BASE = rawBase.replace(/\/+$/, "")
@@ -12,46 +13,63 @@ export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
-
-    const body = new URLSearchParams({
-      grant_type: "password",
-      username: email,
-      password: password,
-    }).toString()
+    setLoading(true)
 
     try {
-      const res = await fetch(`${API_BASE}/token`, {
+      // Get token
+      const tokenResponse = await fetch(`${API_BASE}/token`, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          username: email,
+          password: password,
+        }),
       })
 
-      if (!res.ok) {
-        if (res.status === 401) throw new Error("Invalid email or password")
-        throw new Error("Login failed")
+      if (!tokenResponse.ok) {
+        throw new Error("Invalid credentials")
       }
 
-      const { access_token } = await res.json()
-      localStorage.setItem("jwt", access_token)
+      const { access_token } = await tokenResponse.json()
 
-      const meRes = await fetch(`${API_BASE}/users/me`, {
-        headers: { Authorization: `Bearer ${access_token}` },
+      // Store token in localStorage
+      localStorage.setItem("token", access_token)
+
+      // Get user info
+      const userResponse = await fetch(`${API_BASE}/users/me`, {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
       })
-      if (!meRes.ok) throw new Error("Could not fetch user info")
-      const me = (await meRes.json()) as { is_admin: boolean }
 
-      if (me.is_admin) {
-        router.push("/admin")
+      if (!userResponse.ok) {
+        throw new Error("Failed to get user info")
+      }
+
+      const userData = await userResponse.json()
+
+      // Store user data
+      localStorage.setItem("user", JSON.stringify(userData))
+
+      toast.success("Login successful!")
+      
+      // Redirect based on user role
+      if (userData.is_admin) {
+        router.push("/admin/creators")
       } else {
         router.push("/portal")
       }
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred")
+    } catch (error) {
+      console.error("Login error:", error)
+      toast.error("Login failed. Please check your credentials.")
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -85,8 +103,6 @@ export default function LoginPage() {
 
           <div className="p-6">
             <form onSubmit={handleSubmit} className="space-y-4">
-              {error && <p className="text-red-500 text-center">{error}</p>}
-
               {/* Email Field */}
               <div className="space-y-2">
                 <label htmlFor="email" className="text-sm font-medium text-white/70 block">
@@ -140,12 +156,17 @@ export default function LoginPage() {
               </div>
 
               {/* Submit Button */}
-              <button
-                type="submit"
-                className="w-full py-3 px-4 bg-[#ff4d8d] hover:bg-[#ff1a6c] text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff4d8d] focus:ring-offset-2 focus:ring-offset-black"
-              >
-                Sign In
-              </button>
+              <div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className={`w-full py-3 px-4 bg-[#ff4d8d] hover:bg-[#ff1a6c] text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff4d8d] focus:ring-offset-2 focus:ring-offset-black ${
+                    loading ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                >
+                  {loading ? "Signing in..." : "Sign In"}
+                </button>
+              </div>
             </form>
 
             {/* Signup Link */}
