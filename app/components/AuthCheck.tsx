@@ -22,8 +22,6 @@ export default function AuthCheck() {
 
       if (isAdminRoute && !isAdmin) {
         router.push('/portal');
-      } else if (!isAdminRoute && isAdmin) {
-        router.push('/admin/creators');
       }
     } catch (error) {
       console.error('Error parsing user data:', error);

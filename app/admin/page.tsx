@@ -52,7 +52,7 @@ interface Email {
 }
 
 const fetcher = async (url: string) => {
-  const token = localStorage.getItem("jwt")!
+  const token = localStorage.getItem("token")!
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -63,7 +63,7 @@ const fetcher = async (url: string) => {
 function useAdminEmail() {
   const [email, setEmail] = useState<string>("")
   useEffect(() => {
-    const token = localStorage.getItem("jwt")
+    const token = localStorage.getItem("token")
     if (token) {
       try {
         const decoded: any = jwtDecode(token)
@@ -202,7 +202,7 @@ export default function AdminDashboard() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("jwt")}`,
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
       },
       body: JSON.stringify(payload),
     })
@@ -240,7 +240,7 @@ export default function AdminDashboard() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("jwt")}`,
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
         },
         body: JSON.stringify(payload),
       })
@@ -268,7 +268,7 @@ export default function AdminDashboard() {
       const response = await fetch(`${API_BASE}/admin/creators/${creatorToDelete.id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem("jwt")}`,
+          'Authorization': `Bearer ${localStorage.getItem("token")}`,
         },
       })
 
@@ -300,7 +300,7 @@ export default function AdminDashboard() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("jwt")}`,
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
         },
         body: JSON.stringify({
           creator_ids: Array.from(selectedCreators)
@@ -333,7 +333,7 @@ export default function AdminDashboard() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("jwt")}`,
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
         },
         body: JSON.stringify({
           creator_ids: Array.from(selectedCreators),
@@ -445,7 +445,7 @@ export default function AdminDashboard() {
               <span className="text-sm text-white mb-4 truncate">{adminEmail}</span>
               <button
                 onClick={() => {
-                  localStorage.removeItem("jwt")
+                  localStorage.removeItem("token")
                   router.push("/login")
                 }}
                 className="w-full text-left px-3 py-2 rounded bg-[#ff4d8d] text-black font-semibold hover:bg-[#ff1a6c] transition"
